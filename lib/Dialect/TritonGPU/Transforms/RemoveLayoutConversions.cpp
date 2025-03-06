@@ -1079,10 +1079,15 @@ void LayoutRematerialization::backwardRematerialization(
     return;
   }
 
+  // Heuristic to keep cvt before broadcast
+  if (doNotHoistCvtForBcast(convertOp.getResult(), targetType.getEncoding()))
+    return;
+
   // 1. Take a backward slice of all the tensor dependencies that can be
   // rematerialized.
   SetVector<Value> slice;
   DenseMap<Value, Attribute> layout;
+
   LogicalResult result = getRematerializableSlice(
       convertOp.getSrcMutable(), targetType.getEncoding(), slice, layout);
   if (result.failed()) {

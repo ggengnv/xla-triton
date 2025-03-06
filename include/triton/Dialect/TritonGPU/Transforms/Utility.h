@@ -161,6 +161,9 @@ void appendToForOpYield(scf::ForOp forOp, ArrayRef<Value> newOperands);
 Operation *cloneWithInferType(mlir::OpBuilder &rewriter, Operation *op,
                               IRMapping &mapping);
 
+// TODO(ggengnv) document
+bool doNotHoistCvtForBcast(Value val, Attribute encoding);
+
 // Get backward slice of tensor values starting from the root node along with
 // encoding propagation.
 LogicalResult getConvertBackwardSlice(

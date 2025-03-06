@@ -824,6 +824,70 @@ static bool isFreeConvert(Operation *op) {
                               convertOp.getType());
 }
 
+int cdiv(int x, int y) { return (x + y - 1) / y; }
+
+bool doNotHoistCvtForBcast(Value val, Attribute encoding) {
+  // is there exactly one user?
+  auto users = val.getUsers();
+  if (std::distance(users.begin(), users.end()) != 1)
+    return false;
+
+  // is the user broadcast?
+  auto op = *users.begin();
+  auto bcast = dyn_cast<BroadcastOp>(op);
+  if (!bcast)
+    return false;
+
+  // does this broadcast descend from load?
+  bool foundLoad = false;
+  std::queue<Operation *> q;
+  q.push(val.getDefiningOp());
+  while (!q.empty()) {
+    auto op = q.front();
+    q.pop();
+
+    if (!op)
+      continue;
+
+    if (isa<LoadOp>(op)) {
+      foundLoad = true;
+      break;
+    }
+
+    for (auto opr : op->getOperands())
+      q.push(opr.getDefiningOp());
+  }
+  if (!foundLoad)
+    return false;
+
+  // get types & encodings
+  auto srcTy = cast<RankedTensorType>(bcast.getSrc().getType());
+  auto srcEnc = dyn_cast<ttg::DistributedEncodingTrait>(srcTy.getEncoding());
+  if (!srcEnc)
+    return false;
+  auto resTy = cast<RankedTensorType>(bcast.getResult().getType());
+  auto resEnc = dyn_cast<ttg::DistributedEncodingTrait>(encoding);
+  if (!resEnc)
+    return false;
+
+  // is this broadcast wasteful?
+  auto spt = resEnc.getSizePerThread();
+  int uniqueLoadsPerThread = 1;
+  for (int dim = 0; dim < spt.size(); dim++) {
+    // each thread won't hold more than 1 unique value along broadcasting dim
+    // so only count non-broadcasting dims
+    if (srcTy.getShape()[dim] != 1)
+      uniqueLoadsPerThread *= spt[dim];
+  }
+
+  auto numThreads = product(srcEnc.getThreadsPerWarp()) *
+                    product(srcEnc.getWarpsPerCTA()) *
+                    product(srcEnc.getCTAsPerCGA());
+  auto uniqueLoadsNeeded = cdiv(srcTy.getNumElements(), numThreads);
+
+  return uniqueLoadsPerThread > uniqueLoadsNeeded;
+}
+
 LogicalResult getConvertBackwardSlice(
     OpOperand &root, SetVector<Value> &slice, Attribute rootEncoding,
     DenseMap<Value, Attribute> &layout,
@@ -901,6 +965,8 @@ LogicalResult getConvertBackwardSlice(
         continue;
       if (stopPropagation && stopPropagation(definingOp))
         continue;
+      if (doNotHoistCvtForBcast(currentValue, encoding))
+        return failure();
       if (isa<triton::CatOp>(definingOp))
         return failure();
       if (auto gather = dyn_cast<GatherOp>(definingOp)) {
