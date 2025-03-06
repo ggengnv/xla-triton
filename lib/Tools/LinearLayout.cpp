@@ -17,7 +17,8 @@
 
 #define DEBUG_TYPE "linear_layout"
 #define DBGS() (llvm::dbgs() << "[" DEBUG_TYPE "]: ")
-#define LDBG(X) LLVM_DEBUG(DBGS() << X << "\n")
+// #define LDBG(X) LLVM_DEBUG(DBGS() << X << "\n")
+#define LDBG(X)
 
 #if defined(_MSC_VER) && !defined(__clang__)
 // from https://gist.github.com/pps83/3210a2f980fd02bb2ba2e5a1fc4a2ef0

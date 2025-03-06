@@ -1159,6 +1159,10 @@ void LayoutRematerialization::hoistConvertDotOperand(
   if (!canBePipelined(convertOp))
     return;
 
+  // Heuristic to keep cvt before broadcast
+  if (doNotHoistCvtForBcast(convertOp.getResult(), targetType.getEncoding()))
+    return;
+
   // We hoist over any operation that can be done without data movement between
   // threads We do views and elementwise pure ops for now
   auto noDataMovement = [](Operation *op) {
@@ -1439,8 +1443,7 @@ void backwardRematerialization(ModuleOp module) {
 }
 
 void hoistConvert(ModuleOp module) {
-  SmallVector<ConvertLayoutOp> convertOps;
-  module.walk([](FuncOp funcOp) {
+  module.walk([&module](FuncOp funcOp) {
     LayoutRematerialization layoutRemat(funcOp);
     layoutRemat.hoistConvertOnTopOfExtOrBroadcast();
     layoutRemat.cleanup();
@@ -1448,8 +1451,12 @@ void hoistConvert(ModuleOp module) {
     layoutRemat = LayoutRematerialization(funcOp);
     layoutRemat.hoistConvertIntoConditionals();
     layoutRemat.cleanup();
+  });
+}
 
-    layoutRemat = LayoutRematerialization(funcOp);
+void hoistConvertDotOp(ModuleOp module) {
+  module.walk([&module](FuncOp funcOp) {
+    LayoutRematerialization layoutRemat(funcOp);
     layoutRemat.hoistConvertDotOperand();
     layoutRemat.cleanup();
   });
@@ -1512,6 +1519,14 @@ public:
     hoistConvert(m);
     LLVM_DEBUG({
       DBGS() << "Module after hoisting converts:\n";
+      m.dump();
+    });
+
+    cleanupConvertOps();
+
+    hoistConvertDotOp(m);
+    LLVM_DEBUG({
+      DBGS() << "Module after hoisting dotOps:\n";
       m.dump();
     });
 

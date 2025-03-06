@@ -833,8 +833,8 @@ bool doNotHoistCvtForBcast(Value val, Attribute encoding) {
     return false;
 
   // is the user broadcast?
-  auto op = *users.begin();
-  auto bcast = dyn_cast<BroadcastOp>(op);
+  auto nextOp = *users.begin();
+  auto bcast = dyn_cast<BroadcastOp>(nextOp);
   if (!bcast)
     return false;
 
@@ -846,7 +846,7 @@ bool doNotHoistCvtForBcast(Value val, Attribute encoding) {
     auto op = q.front();
     q.pop();
 
-    if (!op)
+    if (!op || (op->getBlock() != bcast->getBlock()))
       continue;
 
     if (isa<LoadOp>(op)) {
@@ -871,7 +871,7 @@ bool doNotHoistCvtForBcast(Value val, Attribute encoding) {
     return false;
 
   // is this broadcast wasteful?
-  auto spt = resEnc.getSizePerThread();
+  auto spt = resEnc.getElemsPerThread(resTy.getShape());
   int uniqueLoadsPerThread = 1;
   for (int dim = 0; dim < spt.size(); dim++) {
     // each thread won't hold more than 1 unique value along broadcasting dim
@@ -882,7 +882,7 @@ bool doNotHoistCvtForBcast(Value val, Attribute encoding) {
 
   auto numThreads = product(srcEnc.getThreadsPerWarp()) *
                     product(srcEnc.getWarpsPerCTA()) *
-                    product(srcEnc.getCTAsPerCGA());
+                    product(getCTAsPerCGA(srcEnc));
   auto uniqueLoadsNeeded = cdiv(srcTy.getNumElements(), numThreads);
 
   return uniqueLoadsPerThread > uniqueLoadsNeeded;
